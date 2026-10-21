@@ -31,10 +31,6 @@ export PATH="/opt/homebrew/opt/openjdk/bin:$PATH"
 # User bins
 export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
 
-### MANAGED BY RANCHER DESKTOP START (DO NOT EDIT)
-export PATH="$HOME/.rd/bin:$PATH"
-### MANAGED BY RANCHER DESKTOP END (DO NOT EDIT)
-
 # Deduplicate PATH
 path=("${(@u)path}")
 
@@ -47,6 +43,10 @@ alias claudia="claude"
 alias diff="colordiff"
 alias h="history | grep "
 alias k="kubectl"
+alias kgp="kubectl get pod"
+alias kdp="kubectl describe pod"
+alias kgd="kubectl get deployment"
+alias klo="kubectl logs"
 alias kd="kubectl config use-context dev"
 alias kp="kubectl config use-context prod"
 alias mkd=mkdir
@@ -97,6 +97,10 @@ alias gpsup='git_safe_push_upstream'
 function gres() {
     gco main 2>/dev/null || gco master
     gl
+}
+
+function klp() {
+    kubectl logs ${@} -p
 }
 
 function prune() {
@@ -160,3 +164,6 @@ if [ -d $HOME/.zshconfig ]; then
     done
 fi
 [[ $- == *i* ]] && clear
+
+export UV_NATIVE_TLS=1 # ADDED BY IRU
+export UV_SYSTEM_CERTS=1 # ADDED BY IRU
