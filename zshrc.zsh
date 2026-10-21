@@ -3,6 +3,9 @@ ZSH_THEME="random"
 DISABLE_UPDATE_PROMPT="true"
 export AWS_PROFILE="default"
 export UPDATE_ZSH_DAYS=7
+if [ -f ~/.certs/SystemRootCertificates.pem ] ; then
+    export NODE_EXTRA_CA_CERTS="$HOME/.certs/SystemRootCertificates.pem"
+fi
 plugins=(git)
 source $ZSH/oh-my-zsh.sh
 
