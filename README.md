@@ -88,3 +88,11 @@ Place custom Zsh configs in `~/.zshconfig/*.zsh` and they will be automatically 
 ## 🧑‍💻 Maintainer
 
 [**und1sk0**](https://github.com/und1sk0)
+
+---
+
+## 🧰 Tools (`bin/`)
+
+Standalone scripts live in [`bin/`](bin/), documented in [`bin/README.md`](bin/README.md). Add it to your `PATH` to run them by name.
+
+- **`substack-mirror`**: mirror a Substack publication's posts to Markdown files (Python + pandoc).
