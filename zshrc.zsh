@@ -130,9 +130,10 @@ function prune() {
 
     git fetch -p
 
-    # `git branch -vv` marks the checked-out branch with a leading "* " instead of
-    # two spaces, which shifts $1 to the literal "*" for that line — strip it first.
-    local local_stale_branches=("${(@f)$(git branch -vv | awk '/origin\/.*: gone]/ {sub(/^\* /, ""); print $1}')}")
+    # Use for-each-ref rather than parsing `git branch -vv`: the latter prefixes
+    # branches with markers ("* " for current, "+ " for checked out in another
+    # worktree) that shift the columns and get mistaken for branch names.
+    local local_stale_branches=("${(@f)$(git for-each-ref --format='%(refname:short) %(upstream:remotename) %(upstream:track)' refs/heads | awk '$2 == "origin" && $3 == "[gone]" {print $1}')}")
 
     if [[ -z "$local_stale_branches" ]]; then
         echo "No stale branches to delete."
@@ -149,8 +150,16 @@ function prune() {
         git checkout "$default_branch"
     fi
 
+    # Branches checked out in another worktree can't be deleted (even with -D);
+    # skip them with a hint instead of letting git error out.
+    local worktree_branches=("${(@f)$(git worktree list --porcelain | sed -n 's@^branch refs/heads/@@p')}")
+
     echo "Deleting stale branches:"
     for branch in $local_stale_branches; do
+        if (( ${worktree_branches[(Ie)$branch]} )); then
+            echo "  $branch (skipped: checked out in a worktree — 'git worktree remove' it first)"
+            continue
+        fi
         echo "  $branch"
         git branch "$delete_arg" "$branch"
     done
