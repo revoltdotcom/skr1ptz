@@ -83,20 +83,27 @@ function fm() {
 
 # Prevent pushes to main/master
 function _git_guard_main() {
+    local override="$1"
     local branch=$(git symbolic-ref --short HEAD 2>/dev/null)
-    if [[ "$branch" == "main" || "$branch" == "master" ]]; then
+    if [[ "$override" != true && ( "$branch" == "main" || "$branch" == "master" ) ]]; then
         echo "Refusing to push to '$branch'. Use a feature branch instead."
+        echo "Override with: ${funcstack[2]} -F"
         return 1
     fi
 }
 
+# Pass -F as the first argument to allow pushing to main/master
 function git_safe_push() {
-    _git_guard_main || return 1
+    local override=false
+    if [[ "$1" == "-F" ]]; then override=true; shift; fi
+    _git_guard_main "$override" || return 1
     command git push "$@"
 }
 
 function git_safe_push_upstream() {
-    _git_guard_main || return 1
+    local override=false
+    if [[ "$1" == "-F" ]]; then override=true; shift; fi
+    _git_guard_main "$override" || return 1
     command git push --set-upstream origin "$(git symbolic-ref --short HEAD)"
 }
 
