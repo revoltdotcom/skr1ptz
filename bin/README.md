@@ -10,7 +10,7 @@ Mirror a Substack publication's posts to Markdown files, one per post, with YAML
 
 It uses Substack's public, undocumented JSON endpoints, so public posts need no login:
 
-- `/api/v1/archive?sort=new&offset=N&limit=50` lists the posts.
+- `/api/v1/archive?sort=new&limit=50` lists the posts as `{"posts": [...], "nextCursor": "..."}`. The tool passes `nextCursor` back as `&cursor=` until it's null. As of November 2026, the endpoint rejects the older `&offset=N` paging with a 400.
 - `/api/v1/posts/<slug>` returns each one, with the text in `body_html`.
 
 Paid-only posts come back truncated, since the tool doesn't log in.
@@ -36,6 +36,7 @@ bin/substack-mirror https://example.substack.com posts/
 - A file is rewritten only when the post's front matter (other than `fetched`) or its body has changed, so `fetched` records when a change was last picked up.
 - Requests are paced 1.5 s apart, and a 429 is retried with backoff (Substack rate-limits after about 30 quick calls).
 - It never deletes files. A post that's unpublished or renamed on Substack stays until you remove it.
+- Behind a TLS-inspecting proxy (Cloudflare Gateway, for example), Python fails with `CERTIFICATE_VERIFY_FAILED`, because it doesn't read the macOS keychain. Point it at a CA bundle that includes the proxy's root, such as `SSL_CERT_FILE=~/.certs/SystemRootCertificates.pem bin/substack-mirror ...`.
 
 ### Output
 

@@ -23,6 +23,7 @@ import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -44,17 +45,26 @@ def get_json(url):
 
 
 def archive(base):
-    """Every post in the archive, newest first, de-duplicated by id."""
-    seen, posts, offset = set(), [], 0
+    """Every post in the archive, newest first, de-duplicated by id.
+
+    The endpoint pages by cursor: each response is {"posts": [...], "nextCursor": ...},
+    and ?cursor=<nextCursor> returns the next page. (As of 2026-11 it rejects
+    ?offset= with a 400, which is how it used to page.)
+    """
+    seen, posts, cursor = set(), [], None
     while True:
-        page = get_json(f"{base}/api/v1/archive?sort=new&offset={offset}&limit=50")
-        if not page:
+        url = f"{base}/api/v1/archive?sort=new&limit=50"
+        if cursor:
+            url += "&cursor=" + urllib.parse.quote(cursor, safe="")
+        page = get_json(url)
+        if not isinstance(page, dict) or not isinstance(page.get("posts"), list):
+            sys.exit(f"substack-mirror: unexpected archive response from {url}; the API may have changed")
+        new = [p for p in page["posts"] if p["id"] not in seen]
+        seen.update(p["id"] for p in new)
+        posts.extend(new)
+        cursor = page.get("nextCursor")
+        if not cursor or not new:  # `not new` stops a cursor that doesn't advance
             return posts
-        for p in page:
-            if p["id"] not in seen:
-                seen.add(p["id"])
-                posts.append(p)
-        offset += len(page)  # pages can come back short
         time.sleep(PAUSE)
 
 
