@@ -9,6 +9,15 @@ fi
 plugins=(git)
 source $ZSH/oh-my-zsh.sh
 
+# History: oh-my-zsh defaults to 50000/10000; keep a large finite cap.
+# share_history (set by oh-my-zsh) already writes incrementally, so no inc_append_history.
+HISTSIZE=250000
+SAVEHIST=250000
+setopt EXTENDED_HISTORY       # timestamps
+setopt HIST_IGNORE_SPACE      # leading space = not recorded (use for secrets)
+setopt HIST_IGNORE_ALL_DUPS   # drop older duplicates
+setopt HIST_REDUCE_BLANKS
+
 set -o vi
 
 export EDITOR='vim'
