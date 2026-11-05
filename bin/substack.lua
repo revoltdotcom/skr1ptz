@@ -1,5 +1,7 @@
 -- Pandoc Lua filter: Substack body_html -> clean GFM.
---   * YouTube, Vimeo, TikTok, Instagram and embedded-post widgets become "▶" link lines
+--   * YouTube, Vimeo, TikTok, Instagram, and embedded-post widgets become "▶" link lines;
+--     one missing its id or URL is unwrapped instead
+--   * @mentions, which arrive as empty spans, become the mentioned name
 --   * captioned images become plain images; inline SVG icons are dropped
 --   * pull quotes become blockquotes
 --   * subscribe widgets and buttons are dropped
@@ -10,6 +12,15 @@ local function attrs(el)
   local a = el.attributes['data-attrs'] or el.attributes['attrs']
   if not a then return nil end
   return pandoc.json.decode(a, false)
+end
+
+-- A data-attrs field as a string, or nil. pandoc.json decodes JSON null to a truthy
+-- userdata, and JSON integers to floats (76979871 -> "76979871.0"), so handle both here.
+local function field(d, k)
+  local v = type(d) == 'table' and d[k] or nil
+  if type(v) == 'string' then return v end
+  if type(v) == 'number' then return tostring(math.tointeger(v) or v) end
+  return nil
 end
 
 local function strip(s)
@@ -49,16 +60,18 @@ local DROP = {
 
 function Div(el)
   local d = attrs(el)
-  if has(el, 'youtube-wrap') and d then
-    return play('https://www.youtube.com/watch?v=' .. d.videoId)
-  elseif has(el, 'vimeo-wrap') and d then
-    return play('https://vimeo.com/' .. d.videoId)
-  elseif has(el, 'tiktok-wrap') and d then
-    return play(d.url, 'TikTok — ' .. strip(d.author) .. ': ' .. strip(d.title))
-  elseif has(el, 'instagram-embed-wrap') and d then
-    return play('https://www.instagram.com/p/' .. d.instagram_id .. '/', 'Instagram — ' .. strip(d.title))
-  elseif has(el, 'embedded-post-wrap') and d then
-    return play(d.url, strip(d.publication_name) .. ' — ' .. strip(d.title))
+  local video, url, insta = field(d, 'videoId'), field(d, 'url'), field(d, 'instagram_id')
+  local title = strip(field(d, 'title'))
+  if has(el, 'youtube-wrap') and video then
+    return play('https://www.youtube.com/watch?v=' .. video)
+  elseif has(el, 'vimeo-wrap') and video then
+    return play('https://vimeo.com/' .. video)
+  elseif has(el, 'tiktok-wrap') and url then
+    return play(url, 'TikTok — ' .. strip(field(d, 'author')) .. ': ' .. title)
+  elseif has(el, 'instagram-embed-wrap') and insta then
+    return play('https://www.instagram.com/p/' .. insta .. '/', 'Instagram — ' .. title)
+  elseif has(el, 'embedded-post-wrap') and url then
+    return play(url, strip(field(d, 'publication_name')) .. ' — ' .. title)
   elseif has(el, 'captioned-image-container') then
     return images(el)
   elseif has(el, 'pullquote') then
@@ -79,5 +92,12 @@ function Image(el)
 end
 
 function Span(el)
+  if has(el, 'mention-wrap') then
+    -- the span is empty; Substack renders the name from data-attrs in the browser
+    local d = attrs(el)
+    local name, url = field(d, 'name'), field(d, 'url')
+    if url and name then return pandoc.Link({ pandoc.Str(name) }, url) end
+    return name and pandoc.Str(name) or el.content
+  end
   if #el.attributes == 0 and #el.classes == 0 then return el.content end
 end

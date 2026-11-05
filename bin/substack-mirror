@@ -5,8 +5,8 @@ Lists every post through the public /api/v1/archive endpoint, fetches each one
 through /api/v1/posts/<slug>, converts body_html to GitHub-flavored Markdown with
 pandoc and substack.lua, and writes <out>/<slug>.md with YAML front matter.
 
-A file is rewritten only when its body or its `updated` stamp has changed, so
-`fetched` records when the content was last seen to change.
+A file is rewritten only when its body or its front matter (other than `fetched`)
+has changed, so `fetched` records when a change was last picked up.
 
 Usage:
     substack-mirror https://example.substack.com posts/
@@ -18,9 +18,12 @@ import argparse
 import datetime
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.parse
 import urllib.request
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -42,43 +45,57 @@ def get_json(url):
 
 
 def archive(base):
-    """Every post in the archive, newest first, de-duplicated by id."""
-    seen, posts, offset = set(), [], 0
+    """Every post in the archive, newest first, de-duplicated by id.
+
+    The endpoint pages by cursor: each response is {"posts": [...], "nextCursor": ...},
+    and ?cursor=<nextCursor> returns the next page. (As of 2026-11 it rejects
+    ?offset= with a 400, which is how it used to page.)
+    """
+    seen, posts, cursor = set(), [], None
     while True:
-        page = get_json(f"{base}/api/v1/archive?sort=new&offset={offset}&limit=50")
-        if not page:
+        url = f"{base}/api/v1/archive?sort=new&limit=50"
+        if cursor:
+            url += "&cursor=" + urllib.parse.quote(cursor, safe="")
+        page = get_json(url)
+        if not isinstance(page, dict) or not isinstance(page.get("posts"), list):
+            sys.exit(f"substack-mirror: unexpected archive response from {url}; the API may have changed")
+        new = [p for p in page["posts"] if p["id"] not in seen]
+        seen.update(p["id"] for p in new)
+        posts.extend(new)
+        cursor = page.get("nextCursor")
+        if not cursor or not new:  # `not new` stops a cursor that doesn't advance
             return posts
-        for p in page:
-            if p["id"] not in seen:
-                seen.add(p["id"])
-                posts.append(p)
-        offset += len(page)  # pages can come back short
         time.sleep(PAUSE)
 
 
 def to_markdown(body_html):
+    # body_html can be null (e.g. audio-only posts); input=None would hand pandoc
+    # this process's stdin, and it would wait on the terminal.
     return subprocess.run(
         ["pandoc", "-f", "html", "-t", "gfm", "--wrap=none", "--lua-filter", str(FILTER)],
-        input=body_html, capture_output=True, text=True, check=True,
+        input=body_html or "", capture_output=True, text=True, check=True,
     ).stdout
 
 
 def q(s):
-    return '"' + (s or "").replace("\\", "\\\\").replace('"', '\\"') + '"'
+    """A YAML double-quoted scalar. JSON string escapes are valid YAML escapes, and
+    this also escapes newlines and other control characters."""
+    return json.dumps(s or "", ensure_ascii=False)
 
 
 def front_matter(p, fetched):
+    slug = p["slug"]
     return "\n".join([
         "---",
         f"title: {q(p['title'])}",
         f"subtitle: {q(p.get('subtitle'))}",
-        f"slug: {q(p['slug'])}",
+        f"slug: {q(slug)}",
         f"url: {q(p['canonical_url'])}",
         f"published: {q(p['post_date'])}",
         f"updated: {q(p.get('updated_at'))}",
-        f"wordcount: {p.get('wordcount')}",
+        f"wordcount: {json.dumps(p.get('wordcount'))}",
         f"audience: {q(p.get('audience'))}",
-        f"source: {q(f'Substack API /api/v1/posts/{p['slug']} (body_html converted with pandoc)')}",
+        f"source: {q(f'Substack API /api/v1/posts/{slug} (body_html converted with pandoc)')}",
         f"fetched: {q(fetched)}",
         "---",
         "",
@@ -100,11 +117,16 @@ def main():
     ap.add_argument("--only", nargs="*", help="limit to these slugs")
     args = ap.parse_args()
 
+    # Fail before the archive crawl, which takes a while, rather than after it.
+    if not shutil.which("pandoc"):
+        sys.exit("substack-mirror: pandoc not found on PATH (brew install pandoc)")
+
     base = args.base.rstrip("/")
     today = datetime.date.today().isoformat()
-    args.out.mkdir(parents=True, exist_ok=True)
-    if args.cache:
-        args.cache.mkdir(parents=True, exist_ok=True)
+    if not args.dry_run:
+        args.out.mkdir(parents=True, exist_ok=True)
+        if args.cache:
+            args.cache.mkdir(parents=True, exist_ok=True)
 
     listed = archive(base)
     slugs = [p["slug"] for p in listed if not args.only or p["slug"] in args.only]
@@ -114,12 +136,12 @@ def main():
     for slug in slugs:
         p = get_json(f"{base}/api/v1/posts/{slug}")
         time.sleep(PAUSE)
-        if args.cache:
-            (args.cache / f"{slug}.json").write_text(json.dumps(p, ensure_ascii=False))
-        text = front_matter(p, today) + "\n" + to_markdown(p["body_html"])
+        if args.cache and not args.dry_run:
+            (args.cache / f"{slug}.json").write_text(json.dumps(p, ensure_ascii=False), encoding="utf-8")
+        text = front_matter(p, today) + "\n" + to_markdown(p.get("body_html"))
         path = args.out / f"{slug}.md"
         if path.exists():
-            if split(path.read_text()) == split(text):
+            if split(path.read_text(encoding="utf-8")) == split(text):
                 counts["unchanged"] += 1
                 continue
             status = "changed"
@@ -128,7 +150,7 @@ def main():
         counts[status] += 1
         print(f"{status:8} {slug}")
         if not args.dry_run:
-            path.write_text(text)
+            path.write_text(text, encoding="utf-8")
 
     print(", ".join(f"{v} {k}" for k, v in counts.items()), file=sys.stderr)
 

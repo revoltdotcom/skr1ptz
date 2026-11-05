@@ -21,8 +21,6 @@ setopt HIST_REDUCE_BLANKS
 set -o vi
 
 export EDITOR='vim'
-
-export LESSOPEN="| src-hilite-lesspipe.sh %s"
 export LESS=' -R'
 
 ## PATH setup
@@ -43,13 +41,19 @@ export PATH="$HOME/.local/bin:$HOME/bin:$PATH"
 # Deduplicate PATH
 path=("${(@u)path}")
 
+# Syntax highlighting in less, if source-highlight is installed (brew install source-highlight).
+# Checked after PATH is built; with the helper missing, every less call prints "command not found".
+if (( $+commands[src-hilite-lesspipe.sh] )); then
+    export LESSOPEN="| src-hilite-lesspipe.sh %s"
+fi
+
 ## Aliases
 alias apwhois="whois -h whois.apnic.net"
 alias awhois="whois -h whois.arin.net"
-alias c="curl -sq"
+alias c="curl -qs"  # -q must come first, or curl still reads ~/.curlrc
 alias cg="cd ~/git"
 alias claudia="claude"
-alias diff="colordiff"
+(( $+commands[colordiff] )) && alias diff="colordiff"
 alias h="history | grep "
 alias k="kubectl"
 alias kgp="kubectl get pod"
@@ -61,7 +65,7 @@ alias kp="kubectl config use-context prod"
 alias mkd=mkdir
 alias opera="/Applications/Opera.app/Contents/MacOS/Opera"
 alias rgr='grep -r'  # rg is reserved for ripgrep
-alias rmt="find . -name .terraform -type d -exec rm -rf {} \;"
+alias rmt="find . -name .terraform -type d -prune -exec rm -rf {} +"
 alias rwhois="whois -h whois.ripe.net"
 alias s="ssh -q"
 alias tfa="terraform apply"
@@ -73,7 +77,8 @@ alias v="vim"
 alias vax="find . \( -name '*.yaml' -o -name '*.json' -o -name '*.txt' -o -name '*.log' \) -print0 | xargs -0 xattr -d com.apple.quarantine 2>/dev/null"
 alias vz="vim ~/.zshrc && source ~/.zshrc"
 alias z="source ~/.zshrc"
-alias zc="source ~/.zshconfig/*.zsh"
+# `source` reads one file (extra args become $1, $2, ...), so loop to reload every file.
+alias zc='for _f in $HOME/.zshconfig/*.zsh(N); do source "$_f"; done; unset _f'
 
 ## Functions
 
@@ -104,50 +109,58 @@ function git_safe_push_upstream() {
     local override=false
     if [[ "$1" == "-F" ]]; then override=true; shift; fi
     _git_guard_main "$override" || return 1
-    command git push --set-upstream origin "$(git symbolic-ref --short HEAD)"
+    local branch=$(git symbolic-ref --short HEAD 2>/dev/null)
+    if [[ -z "$branch" ]]; then
+        echo "Not on a branch (detached HEAD); nothing to set upstream for."
+        return 1
+    fi
+    command git push --set-upstream "$@" origin "$branch"
 }
 
 alias gp='git_safe_push'
 alias gpsup='git_safe_push_upstream'
 
+# Check out the default branch and pull. git_main_branch comes from the oh-my-zsh git plugin.
 function gres() {
-    gco main 2>/dev/null || gco master
-    gl
+    git checkout "$(git_main_branch)" && git pull
 }
 
 function klp() {
-    kubectl logs ${@} -p
+    kubectl logs "$@" -p
 }
 
+# Delete local branches whose upstream is gone. -f force-deletes unmerged ones.
 function prune() {
-    local delete_arg="-d"
+    local delete_arg="-d" opt branch
 
     while getopts "f" opt; do
         case $opt in
             f) delete_arg="-D" ;;
+            *) echo "Usage: prune [-f]"; return 1 ;;
         esac
     done
 
-    git fetch -p
+    git fetch -p || return 1
 
     # Use for-each-ref rather than parsing `git branch -vv`: the latter prefixes
     # branches with markers ("* " for current, "+ " for checked out in another
     # worktree) that shift the columns and get mistaken for branch names.
-    local local_stale_branches=("${(@f)$(git for-each-ref --format='%(refname:short) %(upstream:remotename) %(upstream:track)' refs/heads | awk '$2 == "origin" && $3 == "[gone]" {print $1}')}")
+    # Only consider branches tracking origin whose upstream is "[gone]".
+    local stale_branches=(${(f)"$(git for-each-ref refs/heads \
+        --format='%(refname:short) %(upstream:remotename) %(upstream:track)' |
+        awk '$2 == "origin" && $3 == "[gone]" {print $1}')"})
 
-    if [[ -z "$local_stale_branches" ]]; then
+    if (( ! ${#stale_branches} )); then
         echo "No stale branches to delete."
         return
     fi
 
-    # git refuses to delete the branch you're on — hop to the default branch first
-    # if it's one of the stale ones.
-    local current_branch=$(git rev-parse --abbrev-ref HEAD)
-    if (( ${local_stale_branches[(Ie)$current_branch]} )); then
-        local default_branch=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's@^refs/remotes/origin/@@')
-        default_branch="${default_branch:-main}"
+    # git refuses to delete the checked-out branch, so switch off it first.
+    local current_branch=$(git branch --show-current)
+    if (( ${stale_branches[(Ie)$current_branch]} )); then
+        local default_branch=$(git_main_branch)
         echo "Current branch '$current_branch' is stale — switching to '$default_branch' first."
-        git checkout "$default_branch"
+        git checkout "$default_branch" || return 1
     fi
 
     # Branches checked out in another worktree can't be deleted (even with -D);
@@ -155,7 +168,7 @@ function prune() {
     local worktree_branches=("${(@f)$(git worktree list --porcelain | sed -n 's@^branch refs/heads/@@p')}")
 
     echo "Deleting stale branches:"
-    for branch in $local_stale_branches; do
+    for branch in $stale_branches; do
         if (( ${worktree_branches[(Ie)$branch]} )); then
             echo "  $branch (skipped: checked out in a worktree — 'git worktree remove' it first)"
             continue
@@ -183,11 +196,12 @@ autoload -Uz _zi
 zicompinit
 
 ## Local config overrides
-if [ -d $HOME/.zshconfig ]; then
-    for f in $HOME/.zshconfig/*.zsh; do
-        source $f
-    done
-fi
+# Sourced at top level, not inside a function, so `typeset` in these files stays global.
+# (N) skips the loop instead of failing with "no matches found" when there are none.
+for _f in $HOME/.zshconfig/*.zsh(N); do
+    source "$_f"
+done
+unset _f
 [[ $- == *i* ]] && clear
 
 export UV_NATIVE_TLS=1 # ADDED BY IRU
