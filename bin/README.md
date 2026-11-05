@@ -59,7 +59,8 @@ String values are JSON-escaped, which is valid YAML, so a newline in a subtitle 
 
 The body is GitHub-flavored Markdown, converted with `pandoc -f html -t gfm --wrap=none --lua-filter substack.lua` (the filter lives next to the script). The filter:
 
-- turns YouTube, Vimeo, TikTok, and Instagram embeds, and embedded Substack posts, into `▶` link lines, built from each widget's `data-attrs`;
+- turns YouTube, Vimeo, TikTok, and Instagram embeds, and embedded Substack posts, into `▶` link lines, built from each widget's `data-attrs`. An embed whose `data-attrs` lacks its ID or URL is unwrapped instead;
+- turns @mentions into the mentioned name, linked when `data-attrs` has a URL. Substack sends them as empty spans and fills in the name in the browser;
 - turns captioned images into plain images and drops inline SVG icons;
 - turns pull quotes into blockquotes;
 - drops subscribe widgets and buttons;
