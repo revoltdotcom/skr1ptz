@@ -1,0 +1,23 @@
+# Ghostty config mirroring the macOS Terminal.app "Pro" profile
+# (Terminal.app > Settings > Profiles > Pro), extracted via
+# `osascript` + NSKeyedUnarchiver against ~/Library/Preferences/com.apple.Terminal.plist.
+#
+# Real file lives here; symlinked from ~/.config/ghostty/config.
+# See ../README.md for the install step.
+
+font-family = Monaco
+font-size = 12
+
+background = #000000
+background-opacity = 0.85
+
+foreground = #f4f4f4
+bold-color = #ffffff
+
+cursor-color = #606060
+selection-background = #525252
+
+window-width = 160
+window-height = 48
+
+macos-option-as-alt = true

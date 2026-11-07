@@ -7,6 +7,7 @@ Personal zsh configuration and small utility scripts for macOS (Apple Silicon an
 | Path | What it is |
 |---|---|
 | [`zshrc.zsh`](zshrc.zsh) | The `~/.zshrc`, built on Oh My Zsh |
+| [`ghostty/config`](ghostty/config) | [Ghostty](https://ghostty.org) terminal config, mirroring Terminal.app's "Pro" profile |
 | [`bin/`](bin/) | Standalone tools, documented in [`bin/README.md`](bin/README.md) |
 
 ## Install
@@ -18,6 +19,15 @@ git clone git@github.com:revoltdotcom/skr1ptz.git ~/git/skr1ptz
 mv ~/.zshrc ~/.zshrc.bak   # ln -s won't replace an existing file
 ln -s ~/git/skr1ptz/zshrc.zsh ~/.zshrc
 exec zsh
+```
+
+### Ghostty
+
+`~/.config/ghostty/config` is a symlink to `ghostty/config` in a checkout of this repo.
+
+```bash
+mkdir -p ~/.config/ghostty
+ln -s ~/git/skr1ptz/ghostty/config ~/.config/ghostty/config   # ln -s won't replace an existing file
 ```
 
 Requirements:
