@@ -49,11 +49,12 @@ def archive(base):
 
     The endpoint pages by cursor: each response is {"posts": [...], "nextCursor": ...},
     and ?cursor=<nextCursor> returns the next page. (As of 2026-11 it rejects
-    ?offset= with a 400, which is how it used to page.)
+    ?offset= with a 400, which is how it used to page, and its max ?limit= dropped
+    from 50 to 25.)
     """
     seen, posts, cursor = set(), [], None
     while True:
-        url = f"{base}/api/v1/archive?sort=new&limit=50"
+        url = f"{base}/api/v1/archive?sort=new&limit=25"
         if cursor:
             url += "&cursor=" + urllib.parse.quote(cursor, safe="")
         page = get_json(url)
