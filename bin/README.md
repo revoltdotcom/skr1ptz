@@ -13,7 +13,7 @@ It uses Substack's public, undocumented JSON endpoints, so public posts need no 
 - `/api/v1/archive?sort=new&limit=50` lists the posts as `{"posts": [...], "nextCursor": "..."}`. The tool passes `nextCursor` back as `&cursor=` until it's null. As of November 2026, the endpoint rejects the older `&offset=N` paging with a 400.
 - `/api/v1/posts/<slug>` returns each one, with the text in `body_html`.
 
-Paid-only posts come back truncated, since the tool doesn't log in.
+Paid-only posts come back truncated, since the tool doesn't log in. Pass `--cookies` (or set `$COOKIES_PATH`) to a python-substack-style cookies JSON file (`{"substack.sid": "..."}`) and a truncated post is re-fetched with that cookie attached, for the full text.
 
 ### Requirements
 
@@ -32,6 +32,7 @@ bin/substack-mirror https://example.substack.com posts/
 | `--dry-run` | Reports `new` and `changed` posts without writing anything, including the output and cache directories |
 | `--only SLUG …` | Limits the run to these slugs |
 | `--cache DIR` | Saves each post's raw JSON in `DIR` |
+| `--cookies PATH` (or `$COOKIES_PATH`) | Re-fetches a paid-only post with this cookie attached, for the full text instead of the public truncated copy |
 
 - A file is rewritten only when the post's front matter (other than `fetched`) or its body has changed, so `fetched` records when a change was last picked up.
 - Requests are paced 1.5 s apart, and a 429 is retried with backoff (Substack rate-limits after about 30 quick calls).

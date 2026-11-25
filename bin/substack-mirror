@@ -12,11 +12,17 @@ Usage:
     substack-mirror https://example.substack.com posts/
     substack-mirror --dry-run ...     # report what would change, write nothing
     substack-mirror --cache DIR ...   # keep the raw post JSON in DIR
+    substack-mirror --cookies ~/.substack/cookies.json ...   # full text of paid-only posts
+
+A post whose `audience` isn't "everyone" comes back truncated from the public
+endpoint. With `--cookies` (or $COOKIES_PATH), a truncated post is re-fetched with
+that cookie attached, the same login python-substack uses, to get the full text.
 """
 
 import argparse
 import datetime
 import json
+import os
 import pathlib
 import shutil
 import subprocess
@@ -32,9 +38,21 @@ UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML,
 PAUSE = 1.5  # Substack returns 429 after ~30 quick calls
 
 
-def get_json(url):
+def cookie_header(cookies_path):
+    """A `Cookie:` header value from a python-substack-style cookies JSON file
+    ({"substack.sid": "..."}), or None if no path was given."""
+    if not cookies_path:
+        return None
+    cookies = json.loads(pathlib.Path(cookies_path).expanduser().read_text())
+    return "; ".join(f"{k}={v}" for k, v in cookies.items())
+
+
+def get_json(url, cookie=None):
+    headers = {"User-Agent": UA}
+    if cookie:
+        headers["Cookie"] = cookie
     for attempt in range(5):
-        req = urllib.request.Request(url, headers={"User-Agent": UA})
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=30) as r:
                 return json.load(r)
@@ -116,12 +134,15 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cache", type=pathlib.Path, help="save each post's raw JSON here")
     ap.add_argument("--only", nargs="*", help="limit to these slugs")
+    ap.add_argument("--cookies", default=os.environ.get("COOKIES_PATH"),
+                     help="cookies JSON (or $COOKIES_PATH) to re-fetch paid-only posts in full")
     args = ap.parse_args()
 
     # Fail before the archive crawl, which takes a while, rather than after it.
     if not shutil.which("pandoc"):
         sys.exit("substack-mirror: pandoc not found on PATH (brew install pandoc)")
 
+    cookie = cookie_header(args.cookies)
     base = args.base.rstrip("/")
     today = datetime.date.today().isoformat()
     if not args.dry_run:
@@ -136,6 +157,8 @@ def main():
     counts = {"new": 0, "changed": 0, "unchanged": 0}
     for slug in slugs:
         p = get_json(f"{base}/api/v1/posts/{slug}")
+        if cookie and p.get("audience") != "everyone":
+            p = get_json(f"{base}/api/v1/posts/{slug}", cookie=cookie)
         time.sleep(PAUSE)
         if args.cache and not args.dry_run:
             (args.cache / f"{slug}.json").write_text(json.dumps(p, ensure_ascii=False), encoding="utf-8")
