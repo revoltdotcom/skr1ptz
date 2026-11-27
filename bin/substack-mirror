@@ -3,7 +3,8 @@
 
 Lists every post through the public /api/v1/archive endpoint, fetches each one
 through /api/v1/posts/<slug>, converts body_html to GitHub-flavored Markdown with
-pandoc and substack.lua, and writes <out>/<slug>.md with YAML front matter.
+pandoc and substack.lua, and writes <out>/YYYY/MM/DD/<slug>.md with YAML front
+matter, dated by the post's own `post_date`.
 
 A file is rewritten only when its body or its front matter (other than `fetched`)
 has changed, so `fetched` records when a change was last picked up.
@@ -140,7 +141,8 @@ def main():
         if args.cache and not args.dry_run:
             (args.cache / f"{slug}.json").write_text(json.dumps(p, ensure_ascii=False), encoding="utf-8")
         text = front_matter(p, today) + "\n" + to_markdown(p.get("body_html"))
-        path = args.out / f"{slug}.md"
+        yyyy, mm, dd = p["post_date"][:10].split("-")
+        path = args.out / yyyy / mm / dd / f"{slug}.md"
         if path.exists():
             if split(path.read_text(encoding="utf-8")) == split(text):
                 counts["unchanged"] += 1
@@ -151,6 +153,7 @@ def main():
         counts[status] += 1
         print(f"{status:8} {slug}")
         if not args.dry_run:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(text, encoding="utf-8")
 
     print(", ".join(f"{v} {k}" for k, v in counts.items()), file=sys.stderr)
